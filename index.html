@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Carrega o Phaser a partir do CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <title>Exercício do Pássaro - Funcionalidades Extras</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #000; /* Fundo preto para evidenciar estrelas e partículas */
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Função config() - Configuração do Jogo e Inicialização do Phaser
+      var config = {
+        type: Phaser.AUTO, // Phaser escolhe o renderizador automaticamente
+        width: 800, // Largura da tela do jogo
+        height: 600, // Altura da tela do jogo
+        physics: {
+          default: "arcade",
+          arcade: {
+            debug: false, // Desativa o debug da física
+          },
+        },
+        scene: {
+          preload: preload, // Função para carregar assets
+          create: create, // Função para criar os elementos da cena
+          update: update, // Loop principal (atualizado a cada frame)
+        },
+      };
+
+      var game = new Phaser.Game(config);
+
+      // Variáveis globais
+      var passarinho; // Sprite do passarinho
+      var stars = []; // Array de estrelas cintilantes
+      var velocidadeX = 5; // Velocidade de movimento horizontal
+      var velocidadeY = 3; // Velocidade de movimento vertical
+      var trailEmitter; // Emissor de partículas para o rastro
+      var obstacles; // Grupo de obstáculos
+
+      // Função preload() - Carrega os assets do jogo
+      function preload() {
+        // Carrega a imagem de fundo
+        this.load.image("bg", "assets/bg_space.png");
+        // Carrega a spritesheet do passarinho (8 frames de 75x75 pixels)
+        this.load.spritesheet("bird", "assets/bird-purple.png", {
+          frameWidth: 75,
+          frameHeight: 75,
+        });
+      }
+
+      //Função create() - Cria os elementos e configura a cena
+      function create() {
+        // Adiciona o fundo centralizado e ajustado
+        this.add.image(400, 300, "bg").setScale(1.2);
+
+        // Cria o sprite do passarinho com física, posicionando-o em (100, 300)
+        passarinho = this.physics.add.sprite(100, 300, "bird").setScale(1.3);
+        passarinho.body.allowGravity = false; // Desativa a gravidade para o passarinho
+
+        // Cria a animação "fly" utilizando os frames da spritesheet
+        this.anims.create({
+          key: "fly",
+          frames: this.anims.generateFrameNumbers("bird", { start: 0, end: 7 }),
+          frameRate: 10, // 10 frames por segundo
+          repeat: -1, // Repetição infinita
+        });
+        passarinho.anims.play("fly", true);
+
+        // Define propriedades para controlar o movimento:
+        // 'ida': true = movendo para a direita; false = movendo para a esquerda
+        // 'cima': true = subindo; false = descendo
+        passarinho.ida = true;
+        passarinho.cima = true;
+
+        // Cria um gráfico para desenhar um pequeno círculo
+        var graphics = this.add.graphics();
+        graphics.fillStyle(0xffffff, 1); // Cor branca
+        graphics.fillCircle(4, 4, 4); // Desenha um círculo com raio 4
+        // Gera uma textura a partir do gráfico para usar nas partículas
+        graphics.generateTexture("particle", 8, 8);
+        graphics.destroy(); // Remove o gráfico (a textura já foi gerada)
+
+        // Cria um sistema de partículas usando a textura "particle"
+        var particles = this.add.particles("particle");
+        trailEmitter = particles.createEmitter({
+          speed: 0, // As partículas não se deslocam
+          scale: { start: 0.5, end: 0 }, // Partículas encolhem até desaparecer
+          alpha: { start: 1, end: 0 }, // Transparência decresce com o tempo
+          lifespan: 500, // Cada partícula dura 500ms
+          frequency: 50, // Emite uma partícula a cada 50ms
+        });
+        // Faz o emissor seguir o passarinho
+        trailEmitter.startFollow(passarinho);
+
+        /***** Criação das Estrelas Cintilantes no Fundo *****/
+        // Cria 30 estrelas em posições aleatórias na tela
+        for (var i = 0; i < 30; i++) {
+          var x = Phaser.Math.Between(0, config.width);
+          var y = Phaser.Math.Between(0, config.height);
+          var star = this.add.circle(x, y, Phaser.Math.Between(1, 3), 0xffff00);
+          stars.push(star);
+        }
+
+        // Cria um grupo de obstáculos com física
+        obstacles = this.physics.add.group();
+
+        // Cria uma textura para os obstáculos: um quadrado vermelho de 30x30 pixels
+        var obstacleGraphics = this.add.graphics();
+        obstacleGraphics.fillStyle(0xff0000, 1);
+        obstacleGraphics.fillRect(0, 0, 30, 30);
+        obstacleGraphics.generateTexture("obstacle", 30, 30);
+        obstacleGraphics.destroy();
+
+        // Gera obstáculos periodicamente (a cada 2000ms)
+        this.time.addEvent({
+          delay: 2000,
+          callback: spawnObstacle,
+          callbackScope: this,
+          loop: true,
+        });
+
+        // Verifica colisões entre o passarinho e os obstáculos
+        this.physics.add.overlap(
+          passarinho,
+          obstacles,
+          hitObstacle,
+          null,
+          this
+        );
+
+        // Cria um texto centralizado na parte inferior da tela
+        var instructions = this.add
+          .text(
+            400,
+            580,
+            "Use as teclas UP/DOWN para aumentar ou diminuir a velocidade e P para parar o jogo",
+            {
+              font: "16px Arial",
+              fill: "#ffffff",
+            }
+          )
+          .setOrigin(0.5);
+        // Cria um tween que reduz a opacidade do texto de 1 a 0 em 15 segundos (15000ms)
+        this.tweens.add({
+          targets: instructions,
+          alpha: 0,
+          duration: 15000,
+          ease: "Linear",
+        });
+
+        // Aumenta a velocidade do passarinho ao pressionar a tecla UP
+        this.input.keyboard.on("keydown-UP", function () {
+          velocidadeX += 1;
+          velocidadeY += 1;
+        });
+        // Diminui a velocidade, garantindo que não fique menor que 1
+        this.input.keyboard.on("keydown-DOWN", function () {
+          velocidadeX = Math.max(1, velocidadeX - 1);
+          velocidadeY = Math.max(1, velocidadeY - 1);
+        });
+        // Alterna a densidade do rastro ao pressionar a tecla SPACE
+        this.input.keyboard.on("keydown-SPACE", function () {
+          if (trailEmitter.frequency === 50) {
+            trailEmitter.setFrequency(200);
+          } else {
+            trailEmitter.setFrequency(50);
+          }
+        });
+        // Pausa ou retoma o jogo ao pressionar a tecla P
+        this.input.keyboard.on(
+          "keydown-P",
+          function () {
+            if (this.scene.isPaused()) {
+              this.scene.resume();
+            } else {
+              this.scene.pause();
+            }
+          },
+          this
+        );
+      }
+
+      function spawnObstacle() {
+        // Define uma posição vertical aleatória (dentro dos limites desejados)
+        var y = Phaser.Math.Between(100, 500);
+        // Cria o obstáculo na posição (850, y) (fora da tela à direita)
+        var obstacle = obstacles.create(850, y, "obstacle");
+        obstacle.body.allowGravity = false;
+        // Define velocidade para mover o obstáculo para a esquerda
+        obstacle.setVelocityX(-100);
+        // Adiciona uma rotação aleatória para efeito visual
+        obstacle.setAngularVelocity(Phaser.Math.Between(-100, 100));
+      }
+
+      function hitObstacle(bird, obstacle) {
+        // Ao colidir, o passarinho recebe uma tonalidade vermelha
+        bird.setTint(0xff0000);
+        // Após 200ms, remove o efeito de tint (restaura a aparência original)
+        this.time.delayedCall(
+          200,
+          function () {
+            bird.clearTint();
+          },
+          [],
+          this
+        );
+        // Destroi o obstáculo que colidiu
+        obstacle.destroy();
+      }
+
+      // Função update() - Atualiza a cena a cada frame (loop principal)
+      function update() {
+        // Movimento Horizontal (Ida e Volta) do Passarinho
+        // Se o passarinho estiver exatamente na posição x = 100, invertemos a direção para "ida" (direita)
+        if (passarinho.x === 100) {
+          console.log("Chegou em 100: invertendo direção para direita.");
+          passarinho.setFlip(false, false);
+          passarinho.ida = true;
+        }
+
+        // Enquanto o passarinho estiver se movendo para a direita (ida) e x for menor que 700, continua avançando
+        if (passarinho.x < 700 && passarinho.ida === true) {
+          console.log("Movendo para a direita...");
+          passarinho.x += 5;
+        }
+
+        // Quando o passarinho atingir exatamente x = 700, invertemos a direção para "volta" (esquerda)
+        if (passarinho.x === 700) {
+          console.log("Chegou em 700: invertendo direção para esquerda.");
+          passarinho.setFlip(true, false);
+          passarinho.ida = false;
+        }
+
+        // Enquanto o passarinho estiver se movendo para a esquerda (ida === false) e x for maior que 100, ele continua voltando
+        if (passarinho.x > 100 && passarinho.ida === false) {
+          console.log("Movendo para a esquerda...");
+          passarinho.x -= 5;
+        }
+
+        // Movimento Vertical do Passarinho
+        // Movimento Vertical do Passarinho
+        if (passarinho.y <= 100) {
+          passarinho.cima = false;
+        }
+        if (passarinho.y >= 500) {
+          passarinho.cima = true;
+        }
+        if (passarinho.cima) {
+          passarinho.y -= velocidadeY;
+        } else {
+          passarinho.y += velocidadeY;
+        }
+
+        // Atualização das Estrelas (Efeito Cintilante)
+        for (var i = 0; i < stars.length; i++) {
+          stars[i].alpha = Phaser.Math.FloatBetween(0.3, 1);
+        }
+
+        // Remoção de Obstáculos Fora da Tela
+        obstacles.getChildren().forEach(function (obstacle) {
+          if (obstacle.x < -30) {
+            obstacle.destroy();
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
